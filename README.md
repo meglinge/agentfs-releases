@@ -1,6 +1,6 @@
 # 安装 AgentFS
 
-二进制和安装脚本公开发布在 [meglinge/agentfs-releases](https://github.com/meglinge/agentfs-releases/releases)，无需 GitHub 登录、Rust 或 jj。首次发布完成后，下面的命令可直接使用；重复执行即升级到最新稳定版。
+二进制和安装脚本公开发布在 [meglinge/agentfs-releases](https://github.com/meglinge/agentfs-releases/releases)，无需 GitHub 登录、Rust 或 jj。下面的命令可直接使用；重复执行即升级到最新稳定版。
 
 ## Windows x64：PowerShell
 
