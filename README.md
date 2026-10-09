@@ -1,6 +1,8 @@
 # 安装 AgentFS
 
-二进制和安装脚本公开发布在 [meglinge/agentfs-releases](https://github.com/meglinge/agentfs-releases/releases)，无需 GitHub 登录、Rust 或 jj。下面的命令可直接使用；重复执行即升级到最新稳定版。
+首个稳定版 [v0.1.0](https://github.com/meglinge/agentfs-releases/releases/tag/v0.1.0) 已发布。二进制和安装脚本公开分发在 [meglinge/agentfs-releases](https://github.com/meglinge/agentfs-releases/releases)，无需 GitHub 登录、Rust 或单独安装 jj。下面的命令可直接安装最新稳定版；重复执行即升级。
+
+让 AI 配置 MCP、创建 workspace 并开始任务，请提供 [AI 集成指南](AI_INTEGRATION.md)。
 
 ## Windows x64：PowerShell
 
@@ -58,10 +60,24 @@ source <(curl -fsSL https://github.com/meglinge/agentfs-releases/releases/latest
 - macOS 使用 local 工作副本；Windows/Linux 的虚拟后端不可用时也可使用 local。
 - 安装器不修改系统可选功能。PATH 更新对当前执行安装命令的终端立即生效；已运行的编辑器、MCP 客户端和其他终端需重启，或配置可执行文件的完整路径。
 
+## 安装验收与更新
+
+安装命令结束后，在同一个终端运行：
+
+```text
+agentfsd --version
+```
+
+指定安装 `v0.1.0` 时应输出 `agentfsd 0.1.0`；未指定版本时，以最新稳定 Release 的 `VERSION` 为准。无需关闭当前终端，也无需额外执行 PATH 设置命令。升级前先停止使用旧程序的 daemon，升级后重新连接 MCP 客户端。
+
+v0.1.0 已通过五个平台的原生构建、Windows/Linux 完整 CI、全部发布文件的匿名下载与 SHA-256 校验，并实际验证 Windows 和 Linux x64 的一条命令安装及当前终端 PATH。维护者后续推送匹配 crate 版本的新 tag，会在构建和检查全部通过后自动发布。
+
 ## 校验、预发布与卸载
 
 安装器先读取稳定版本号，再按固定 tag 下载对应压缩包与 `SHA256SUMS`，校验 SHA-256、归档内容和二进制版本后替换程序。下载或校验失败会保留已有程序。SHA-256 检测下载完整性，不代替独立的代码签名。
 
-预发布版本不会替换最新稳定版。首次只有预发布版本、尚无稳定版时，可从指定 Release 下载 `install.ps1` / `install.sh`，设置 `AGENTFS_VERSION` 后在当前 shell 中执行。
+预发布版本不会替换最新稳定版。安装预发布版本时，设置 `AGENTFS_VERSION` 为对应 tag，再执行上述安装命令。
+
+已发布版本的附件保留发布时快照；最新安装说明见[公开仓库首页](https://github.com/meglinge/agentfs-releases#readme)。
 
 卸载前停止使用该程序的 daemon，删除安装目录中的 `agentfsd.exe` / `agentfsd`，再从用户 PATH 或 shell 配置中删除带 `# AgentFS` 的行。项目目录中的 `.jj` 和 workspace 保留。
