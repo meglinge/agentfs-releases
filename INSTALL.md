@@ -1,8 +1,8 @@
 # 安装 AgentFS
 
-首个稳定版 [v0.1.0](https://github.com/meglinge/agentfs-releases/releases/tag/v0.1.0) 已发布。二进制和安装脚本公开分发在 [meglinge/agentfs-releases](https://github.com/meglinge/agentfs-releases/releases)，无需 GitHub 登录、Rust 或单独安装 jj。下面的命令可直接安装最新稳定版；重复执行即升级。
+稳定版 [v0.1.1](https://github.com/meglinge/agentfs-releases/releases/tag/v0.1.1) 支持子模块和 Git worktree 原地初始化，并提供仓库与基线诊断。二进制和安装脚本公开分发在 [meglinge/agentfs-releases](https://github.com/meglinge/agentfs-releases/releases)，无需 GitHub 登录、Rust 或单独安装 jj。下面的命令可直接安装最新稳定版；重复执行即升级。
 
-让 AI 配置 MCP、创建 workspace 并开始任务，请提供 [AI 集成指南](AI_INTEGRATION.md)。
+让 AI 配置 MCP、创建 workspace 并开始任务，请提供[公开 AI 集成指南](https://github.com/meglinge/agentfs-releases/blob/main/AI_INTEGRATION.md)。
 
 ## Windows x64：PowerShell
 
@@ -17,7 +17,7 @@ irm https://github.com/meglinge/agentfs-releases/releases/latest/download/instal
 指定版本或安装目录：
 
 ```powershell
-$env:AGENTFS_VERSION = 'v0.1.0'
+$env:AGENTFS_VERSION = 'v0.1.1'
 $env:AGENTFS_INSTALL_DIR = 'D:\Tools\AgentFS\bin'
 irm https://github.com/meglinge/agentfs-releases/releases/latest/download/install.ps1 | iex
 ```
@@ -37,7 +37,7 @@ source <(curl -fsSL https://github.com/meglinge/agentfs-releases/releases/latest
 指定版本或目录：
 
 ```bash
-export AGENTFS_VERSION=v0.1.0
+export AGENTFS_VERSION=v0.1.1
 export AGENTFS_INSTALL_DIR="$HOME/tools/agentfs/bin"
 source <(curl -fsSL https://github.com/meglinge/agentfs-releases/releases/latest/download/install.sh)
 ```
@@ -68,7 +68,7 @@ source <(curl -fsSL https://github.com/meglinge/agentfs-releases/releases/latest
 agentfsd --version
 ```
 
-指定安装 `v0.1.0` 时应输出 `agentfsd 0.1.0`；未指定版本时，以最新稳定 Release 的 `VERSION` 为准。无需关闭当前终端，也无需额外执行 PATH 设置命令。升级前先停止使用旧程序的 daemon，升级后重新连接 MCP 客户端。
+指定安装 `v0.1.1` 时应输出 `agentfsd 0.1.1`；未指定版本时，以最新稳定 Release 的 `VERSION` 为准。无需关闭当前终端，也无需额外执行 PATH 设置命令。升级前先停止使用旧程序的 daemon，升级后重新连接 MCP 客户端。
 
 v0.1.0 已通过五个平台的原生构建、Windows/Linux 完整 CI、全部发布文件的匿名下载与 SHA-256 校验，并实际验证 Windows 和 Linux x64 的一条命令安装及当前终端 PATH。维护者后续推送匹配 crate 版本的新 tag，会在构建和检查全部通过后自动发布。
 

@@ -1,8 +1,10 @@
 # AgentFS：AI 快速集成指南
 
-适用：通过 MCP 使用 AgentFS 的 AI coding agent，以及为 agent 接入 MCP 的开发者。本文以已公开发布的 [v0.1.0](https://github.com/meglinge/agentfs-releases/releases/tag/v0.1.0) 为接入基线，包含原地初始化和一条命令安装。仓库示例为 `D:/Project3D`；工具名、参数和返回结构以实际安装版本的 `initialize` instructions 与 `tools/list` Schema 为准。
+适用：通过 MCP 使用 AgentFS 的 AI coding agent，以及为 agent 接入 MCP 的开发者。本文以 [v0.1.1](https://github.com/meglinge/agentfs-releases/releases/tag/v0.1.1) 为接入基线，包含原地初始化和一条命令安装。仓库示例为 `D:/Project3D`；工具名、参数和返回结构以实际安装版本的 `initialize` instructions 与 `tools/list` Schema 为准。
 
 ## 1. 先记住这几件事
+
+子模块接入、仓库身份和基线诊断见[工作区接入检查](WORKSPACE_SETUP.md)，这些能力从 v0.1.1 开始提供。
 
 - `--repo` 指向原来的 Git 工作目录。首次启动自动在 `.git` 旁创建 `.jj`，无需另建管理目录。
 - 每个并行任务使用不同的 workspace 名称；多个客户端绑定同一个名称，就会修改同一份工作副本。
@@ -33,7 +35,7 @@ workspace 子目录在调用 `workspace_create` 后创建。初始化保留原�
 
 ### 准备程序
 
-先运行 `agentfsd --version` 检查是否已安装及实际版本；已有可用程序时直接配置 MCP。需要安装或升级时，从公开 Release 获取二进制，无需 GitHub 登录、源码仓库权限、Rust 或单独安装 jj。已有 Git 仓库应是根目录含 `.git` 目录的普通工作目录。
+先运行 `agentfsd --version` 检查是否已安装及实际版本；已有可用程序时直接配置 MCP。需要安装或升级时，从公开 Release 获取二进制，无需 GitHub 登录、源码仓库权限、Rust 或单独安装 jj。原地初始化支持普通 Git 工作目录，以及使用 `.git` 指针文件的子模块和 linked worktree，详见[工作区接入检查](WORKSPACE_SETUP.md)。
 
 Windows x64，在当前 PowerShell 运行：
 
@@ -51,7 +53,7 @@ agentfsd --version
 
 安装器校验文件和版本，持久保存用户 PATH，并让当前执行命令的终端立即生效。默认目录为 Windows 的 `%LOCALAPPDATA%\AgentFS\bin`、Linux/macOS 的 `~/.local/bin`。AI 工具新开的子进程无法更新其父进程或已经运行的 MCP 客户端的环境变量；此时用安装后的完整路径运行 `agentfsd client-config`，并采用生成配置中的可执行文件路径，或重启客户端。不要仅凭安装成功就假定当前 MCP 会话已经接入。
 
-未设置 `AGENTFS_VERSION` 时安装最新稳定版；需要固定版本可将它设为 `v0.1.0`，并核对输出为 `agentfsd 0.1.0`。重复安装即升级，升级前先停止使用旧程序的 daemon，之后重新连接客户端。指定目录、运行要求和卸载见[安装说明](INSTALL.md)。仅在任务需要开发 AgentFS 本身时，才使用源码构建流程。
+未设置 `AGENTFS_VERSION` 时安装最新稳定版；需要固定版本可将它设为 `v0.1.1`，并核对输出为 `agentfsd 0.1.1`。重复安装即升级，升级前先停止使用旧程序的 daemon，之后重新连接客户端。指定目录、运行要求和卸载见[安装说明](INSTALL.md)。仅在任务需要开发 AgentFS 本身时，才使用源码构建流程。
 
 Windows 默认探测 ProjFS，Linux 默认探测 FUSE；不可用时，新 workspace 使用普通 `local` 工作副本。若必须使用虚拟工作副本，传 `--working-copy agentfs-v2`，探测失败会明确报错。平台准备见[安装说明的平台要求](INSTALL.md#平台与运行要求)。
 
@@ -141,7 +143,13 @@ stdio 的 stdout 是 MCP 协议流，日志在 stderr；不要向协议流混入
 {"name":"workspace_status","arguments":{}}
 ```
 
-仅当错误码为 `workspace_not_found` 时，创建本会话对应的 workspace：
+仅当错误码为 `workspace_not_found` 时才需要创建。创建前先检查实际连接的仓库：
+
+```json
+{"name":"workspace_list","arguments":{}}
+```
+
+核对 `repository.path`、`git_dir`、`git_head` 和 `git_branch`；容器与子模块是不同仓库，不能未经核对把容器记录的旧 gitlink 当作基线。确认后创建本会话对应的 workspace：
 
 ```json
 {"name":"workspace_create","arguments":{"name":"agent-a"}}
@@ -149,7 +157,7 @@ stdio 的 stdout 是 MCP 协议流，日志在 stderr；不要向协议流混入
 
 未指定 `base` 时，优先从 `default` 的父提交开始；原地初始化时这通常是初始化时的 Git HEAD。需要固定基准时，传入已经确认的 bookmark、change id 或 commit id，不要猜测仓库一定有 `main`。
 
-保存结果中的 `path` 和 `working_copy`。复用已存在的 workspace 时先检查其改动，不要重新创建、清空或撤销已有工作。
+保存结果中的 `path` 和 `working_copy`，核对 `parents` 与 `hint`。创建基线不同于 Git HEAD 时会提示，但不会自动切换历史基线。复用已存在的 workspace 时先检查其改动，不要重新创建、清空或撤销已有工作。
 
 ### 第二步：读取和定位
 
@@ -322,7 +330,7 @@ Linux 对应命令为 `pwd`。随后把 `command` 替换为从项目说明中确
 
 | 错误码 | 处理 |
 |---|---|
-| `workspace_not_found` | 创建当前会话绑定的 workspace |
+| `workspace_not_found` | 核对 `workspace_list.repository` 和基线后创建绑定的 workspace |
 | `workspace_exists` | 检查并复用已有 workspace，或为新任务换名 |
 | `workspace_not_allowed` | 修正会话绑定或交由集成者操作 |
 | `base_required` / `invalid_revision` | 查询实际历史，传入有效且明确的基准 |
@@ -352,7 +360,9 @@ agentfsd status --repo D:/Project3D
 任务：<填写任务目标和验收条件>
 
 先读取当前 MCP instructions 和工具 Schema，确认会话绑定。
-调用 workspace_status；仅在 workspace_not_found 时创建 agent-a。
+调用 workspace_status；仅在 workspace_not_found 时需要创建 agent-a。
+创建前调用 workspace_list，核对 repository 的路径、Git HEAD 和分支，再确定 base。
+创建后核对 parents 和 hint，确认基线符合任务；不要盲用容器记录的旧子模块提交。
 以返回的 path 作为实际工作目录，读取该 workspace 内的项目说明。
 保留已有改动，所有本任务文件编辑与测试均在此 workspace 完成。
 外部编辑完成后调用 workspace_status，再使用 diff 审阅。
