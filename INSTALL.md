@@ -1,6 +1,6 @@
 # 安装 AgentFS
 
-稳定版 [v0.1.1](https://github.com/meglinge/agentfs-releases/releases/tag/v0.1.1) 支持子模块和 Git worktree 原地初始化，并提供仓库与基线诊断。二进制和安装脚本公开分发在 [meglinge/agentfs-releases](https://github.com/meglinge/agentfs-releases/releases)，无需 GitHub 登录、Rust 或单独安装 jj。下面的命令可直接安装最新稳定版；重复执行即升级。
+稳定版 [v0.2.0](https://github.com/meglinge/agentfs-releases/releases/tag/v0.2.0) 使用 stdio 与本机 IPC，原生工具负责文件编辑，MCP 保留工作区、版本协作和快速查询。二进制和安装脚本公开分发在 [meglinge/agentfs-releases](https://github.com/meglinge/agentfs-releases/releases)，无需 GitHub 登录、Rust 或单独安装 jj。下面的命令可直接安装最新稳定版；重复执行即升级。
 
 让 AI 配置 MCP、创建 workspace 并开始任务，请提供[公开 AI 集成指南](https://github.com/meglinge/agentfs-releases/blob/main/AI_INTEGRATION.md)。
 
@@ -17,7 +17,7 @@ irm https://github.com/meglinge/agentfs-releases/releases/latest/download/instal
 指定版本或安装目录：
 
 ```powershell
-$env:AGENTFS_VERSION = 'v0.1.1'
+$env:AGENTFS_VERSION = 'v0.2.0'
 $env:AGENTFS_INSTALL_DIR = 'D:\Tools\AgentFS\bin'
 irm https://github.com/meglinge/agentfs-releases/releases/latest/download/install.ps1 | iex
 ```
@@ -37,7 +37,7 @@ source <(curl -fsSL https://github.com/meglinge/agentfs-releases/releases/latest
 指定版本或目录：
 
 ```bash
-export AGENTFS_VERSION=v0.1.1
+export AGENTFS_VERSION=v0.2.0
 export AGENTFS_INSTALL_DIR="$HOME/tools/agentfs/bin"
 source <(curl -fsSL https://github.com/meglinge/agentfs-releases/releases/latest/download/install.sh)
 ```
@@ -68,9 +68,18 @@ source <(curl -fsSL https://github.com/meglinge/agentfs-releases/releases/latest
 agentfsd --version
 ```
 
-指定安装 `v0.1.1` 时应输出 `agentfsd 0.1.1`；未指定版本时，以最新稳定 Release 的 `VERSION` 为准。无需关闭当前终端，也无需额外执行 PATH 设置命令。升级前先停止使用旧程序的 daemon，升级后重新连接 MCP 客户端。
+指定安装 `v0.2.0` 时应输出 `agentfsd 0.2.0`；未指定版本时，以最新稳定 Release 的 `VERSION` 为准。无需关闭当前终端，也无需额外执行 PATH 设置命令。升级前先停止使用旧程序的 daemon，升级后重新连接 MCP 客户端。
 
-v0.1.0 已通过五个平台的原生构建、Windows/Linux 完整 CI、全部发布文件的匿名下载与 SHA-256 校验，并实际验证 Windows 和 Linux x64 的一条命令安装及当前终端 PATH。维护者后续推送匹配 crate 版本的新 tag，会在构建和检查全部通过后自动发布。
+维护者推送匹配 crate 版本的新 tag 后，流程执行 Windows/Linux 完整 CI 和五个平台的原生构建；全部成功并验证附件齐全后自动公开发布。
+
+## 从 v0.1.x 升级
+
+1. 断开 MCP 客户端，使用仍然安装着的旧程序对各仓库执行 `agentfsd stop --repo <仓库目录>`；`--in-process` 会话通过退出客户端关闭。
+2. 删除配置中的 HTTP 参数：`port`、`no_auth`、`allow_origin`、`session_idle_timeout`，以及客户端的 URL、bearer token 和 HTTP transport 配置。新版只接受 stdio；旧 daemon 的协议不能与新版混用。
+3. 执行上面的一条安装命令，然后运行 `agentfsd client-config --client codex --repo <仓库目录> --workspace <名称>`，把生成的 stdio 配置合并到客户端；其他客户端替换 `--client`。
+4. 重新连接，调用 `workspace_status`，核对工作区路径及基线。沿用原有 `.jj` 和工作区，无需重新初始化或删除项目数据。
+
+本次移除 `read_file/list_dir/search/write_file/edit_file/move_path/delete_path` 与 `files` 工具组，无旧名称别名。文件编辑使用客户端原生工具；查询改用 `read_revision_file/list_revision_tree/search_revision_tree` 并显式指定 `rev`。原生修改后先调用 `workspace_status`，再搜索或比较 `@`。新的 `tree_move/tree_remove` 用于投影目录和异常路径的版本树修复。完整调用方式见[AI 集成指南](https://github.com/meglinge/agentfs-releases/blob/main/AI_INTEGRATION.md)。
 
 ## 校验、预发布与卸载
 

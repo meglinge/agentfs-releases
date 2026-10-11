@@ -1,73 +1,14 @@
 # AgentFS：AI 快速集成指南
 
-适用：通过 MCP 使用 AgentFS 的 AI coding agent，以及为 agent 接入 MCP 的开发者。本文以 [v0.1.1](https://github.com/meglinge/agentfs-releases/releases/tag/v0.1.1) 为接入基线，包含原地初始化和一条命令安装。仓库示例为 `D:/Project3D`；工具名、参数和返回结构以实际安装版本的 `initialize` instructions 与 `tools/list` Schema 为准。
+本文对应 v0.2.0，共 39 个 MCP 工具。安装命令与旧版升级步骤见 [安装说明](INSTALL.md)，布局与基线核对见 [工作区说明](WORKSPACE_SETUP.md)。
 
-## 1. 先记住这几件事
+## 接入原则
 
-子模块接入、仓库身份和基线诊断见[工作区接入检查](WORKSPACE_SETUP.md)，这些能力从 v0.1.1 开始提供。
+AgentFS 管理独立工作区与版本；使用客户端原生文件工具编辑、移动、删除，并用原生终端运行普通检查。仓库范围搜索及版本查询优先使用快速 MCP 接口；磁盘上尚未快照的内容用原生工具读取、搜索。
 
-- `--repo` 指向原来的 Git 工作目录。首次启动自动在 `.git` 旁创建 `.jj`，无需另建管理目录。
-- 每个并行任务使用不同的 workspace 名称；多个客户端绑定同一个名称，就会修改同一份工作副本。
-- agent 的实际工作目录取自 `workspace_create` 或 `workspace_status` 返回的 `path`，不要把原仓库根目录当作自己的 workspace。
-- MCP 文件路径使用仓库内相对路径和 `/`，例如 `src/Scene.cpp`；绝对路径仅用于配置服务和设置外部编辑器的工作目录。
-- `@` 表示当前 workspace 正在编辑的 change；文件修改自动记录，不需要 `git add` 或 `git commit`。
-- 文件读取工具读的是已记录的版本树。外部编辑器刚改完文件时，先调用 `workspace_status` 再读取、比较或交付。
-- 任务完成后报告 workspace、`path`、change id、测试结果；只有任务要求发布或清理时，才执行对应操作。
+对外仅 MCP stdio。多个客户端共享同一个仓库 daemon，内部使用本机 IPC。不要自行组装 HTTP 请求或实现另一套 JSON-RPC 生命周期；程序化接入使用正式 MCP SDK，保持会话，设置超时并消费 stderr。
 
-默认布局：
-
-```text
-D:/Project3D/
-├─ .git/                         原 Git 仓库
-├─ .jj/                          jj 元数据
-│  └─ agentfs/
-│     ├─ daemon/                 常驻进程状态
-│     └─ workspaces/
-│        ├─ agent-a/             任务 A
-│        ├─ agent-b/             任务 B
-│        └─ integration/         汇总与测试
-└─ 原有项目文件                   default 工作副本
-```
-
-workspace 子目录在调用 `workspace_create` 后创建。初始化保留原文件、Git HEAD、分支和暂存区；磁盘上的未提交内容按忽略规则及新文件大小限制记录到 `default@`。原目录不参与后台自动 snapshot。
-
-## 2. 接入 MCP 客户端
-
-### 准备程序
-
-先运行 `agentfsd --version` 检查是否已安装及实际版本；已有可用程序时直接配置 MCP。需要安装或升级时，从公开 Release 获取二进制，无需 GitHub 登录、源码仓库权限、Rust 或单独安装 jj。原地初始化支持普通 Git 工作目录，以及使用 `.git` 指针文件的子模块和 linked worktree，详见[工作区接入检查](WORKSPACE_SETUP.md)。
-
-Windows x64，在当前 PowerShell 运行：
-
-```powershell
-irm https://github.com/meglinge/agentfs-releases/releases/latest/download/install.ps1 | iex
-agentfsd --version
-```
-
-Linux x64/ARM64 或 macOS Intel/Apple Silicon，在当前 Bash/Zsh 运行：
-
-```bash
-source <(curl -fsSL https://github.com/meglinge/agentfs-releases/releases/latest/download/install.sh)
-agentfsd --version
-```
-
-安装器校验文件和版本，持久保存用户 PATH，并让当前执行命令的终端立即生效。默认目录为 Windows 的 `%LOCALAPPDATA%\AgentFS\bin`、Linux/macOS 的 `~/.local/bin`。AI 工具新开的子进程无法更新其父进程或已经运行的 MCP 客户端的环境变量；此时用安装后的完整路径运行 `agentfsd client-config`，并采用生成配置中的可执行文件路径，或重启客户端。不要仅凭安装成功就假定当前 MCP 会话已经接入。
-
-未设置 `AGENTFS_VERSION` 时安装最新稳定版；需要固定版本可将它设为 `v0.1.1`，并核对输出为 `agentfsd 0.1.1`。重复安装即升级，升级前先停止使用旧程序的 daemon，之后重新连接客户端。指定目录、运行要求和卸载见[安装说明](INSTALL.md)。仅在任务需要开发 AgentFS 本身时，才使用源码构建流程。
-
-Windows 默认探测 ProjFS，Linux 默认探测 FUSE；不可用时，新 workspace 使用普通 `local` 工作副本。若必须使用虚拟工作副本，传 `--working-copy agentfs-v2`，探测失败会明确报错。平台准备见[安装说明的平台要求](INSTALL.md#平台与运行要求)。
-
-### 首选 stdio
-
-让 MCP 客户端启动以下程序；通常不用另外运行 `serve`：
-
-```powershell
-agentfsd stdio --repo D:/Project3D --workspace agent-a
-```
-
-第一个客户端会初始化 `.jj` 并启动后台 daemon；后续客户端共用它。后台 daemon 默认在无客户端 300 秒后退出。不要给并行客户端使用 `--in-process`，该模式独占仓库。
-
-通用 `mcpServers` 配置示例，前提是客户端能从 `PATH` 找到 `agentfsd`：
+## 配置
 
 ```json
 {
@@ -80,296 +21,87 @@ agentfsd stdio --repo D:/Project3D --workspace agent-a
 }
 ```
 
-第二个 agent 使用同样配置，只将 workspace 改成 `agent-b`。配置 MCP 不会自动切换客户端自身终端或编辑工具的工作目录。
-
-也可以让程序生成对应客户端的配置，避免手写格式和可执行文件路径：
+也可以生成配置：
 
 ```powershell
-agentfsd client-config --client generic --repo D:/Project3D --workspace agent-a
-agentfsd client-config --client claude-code --repo D:/Project3D --workspace agent-a
-agentfsd client-config --client codex --repo D:/Project3D --workspace agent-b
+agentfsd client-config --client codex --repo D:/Project3D --workspace agent-a
 ```
 
-输出为待合入客户端现有配置的内容；保留其他配置项。`--client cursor`、`--client vscode` 也受支持。Codex 生成配置包含启动和调用超时；其他客户端也应让调用超时覆盖 `run.timeout_secs` 及返回结果所需时间。更多配置选项以 `agentfsd client-config --help` 为准。
+同一个固定连接不会随聊天自动改变 workspace。并行任务分别使用 `agent-a`、`agent-b` 等名称和独立会话。已存在的正确工作区应复用，保留未提交修改。
 
-### 需要 HTTP 时
+编排者用 `--integrator` 替代 `--workspace`。它可显式指定工作区；普通工作会话绑定单个工作区，不能修改其他工作区。配置文件的 `[stdio]` 也可设置 `integrator = true`，此时不同时设置 workspace。
 
-先运行固定端口的服务：
+## 第一次连接
 
-```powershell
-agentfsd serve --repo D:/Project3D --port 8765
-agentfsd client-config --client generic --transport http --repo D:/Project3D --workspace agent-a
-```
+1. 完成 MCP initialize 并读取 instructions、tools/list。不要把内部 daemon protocol 3 当作 MCP 协议版本。
+2. 调用 `workspace_status({})`。只在 `workspace_not_found` 时准备创建；认证、路径或绑定错误应先修正。
+3. 调用 `workspace_list({})` 核对 `repository.path`、`git_head`、`git_branch`。外层容器仓库与子模块实现仓库是两个仓库，需要不同连接。
+4. 如需创建，选择核对过的 base 调用 `workspace_create`；返回后再次核对 `path`、`parents`、`hint`。
+5. 记录开始时的 commit，设置原生工具的实际工作目录为返回的 path。MCP 配置本身不会改变当前目录。
 
-连接使用 Streamable HTTP，必须携带生成配置中的认证信息。含 token 的配置不要提交到版本库；可以使用生成器的 `--token-env` 选项引用环境变量。
+不要把子模块 gitlink 当成普通目录递归读取，也不要移动或删除子模块来修复读取错误。不要未经核对就用外层提交里较旧的子模块指针作为基线。
 
-| 接入方式 | 会话范围 |
-|---|---|
-| stdio `--workspace agent-a` | 绑定 `agent-a` |
-| HTTP `/mcp/agent-a` | 绑定 `agent-a` |
-| HTTP `/mcp` | 集成者会话，可显式选择操作的 workspace |
+## 日常工作
 
-绑定会话只能在自己的 workspace 中操作，但可用 `rev: "agent-b@"` 读取其他 change。集成者会话对一般工具传 `workspace`；`workspace_status`、`workspace_remove` 使用 `name`。
+- 通过客户端原生 edit/write 修改实际工作区文件。仓库范围查询用 `search_revision_tree`；需要历史内容用 `read_revision_file/list_revision_tree`，磁盘实时内容仍可用原生工具。
+- 自动快照默认在文件停止变化约两秒后记录修改。status、版本修改操作与受控 run 也会记录相关修改；审阅前调用 status 获取当前事实。
+- `workspace_status.changes` 相对当前 change 的父版本，最多列出 200 项。注意 `truncated` 与总数。
+- 用 `diff` 检查工作区；跨多个 change 的任务必须比较任务开始的固定 commit 和结束版本。不要把当前 `@` 的 diff 当成整项任务修改列表。
+- 原生工具记录编辑操作；客户端界面能否把其他进程写入、jj 版本和独立工作区全部显示出来取决于客户端。用版本差异补充核对。
 
-## 3. 连接后的协议约定
+## 版本树操作
 
-使用 MCP SDK 完成 `initialize`、`notifications/initialized`，再获取 `tools/list`。读取服务返回的 instructions，并按会话实际暴露的工具工作；`--tools` 和 `--read-only` 可能缩小工具集合。
+| 工具 | 适用场景 |
+| --- | --- |
+| `read_revision_file` | 不切换工作区，读取指定 revision 的文件 |
+| `list_revision_tree` | 不切换工作区，查询指定 revision 的目录树 |
+| `search_revision_tree` | 正则或字面量检索指定版本，直接读取版本存储，避免逐个读取投影文件 |
+| `annotate` | 查看每行来源与对应 change |
+| `tree_move` | 移动 jj tree 中的跟踪路径，如原生工具无法移动的 ProjFS 投影目录 |
+| `tree_remove` | 从 jj tree 移除异常/不可表示路径；保留未跟踪文件 |
 
-下文的 JSON 块是 **`tools/call` 的 params**，不是 shell 命令。若客户端直接提供工具调用接口，将 `name` 和 `arguments` 分别交给该接口即可。客户端显示的工具名可能带服务器前缀，以发现结果为准。
-
-原始 JSON-RPC 调用的完整形式如下，`id` 由客户端分配：
+读取示例：
 
 ```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "tools/call",
-  "params": {
-    "name": "workspace_status",
-    "arguments": {}
-  }
-}
+{"path":"src/lib.rs","rev":"@-"}
 ```
 
-stdio 的 stdout 是 MCP 协议流，日志在 stderr；不要向协议流混入日志。HTTP 会话和重连由 MCP SDK 管理。AgentFS daemon protocol 2 是内部进程发现协议，不能拿它替代 MCP 协商的协议版本。
-
-## 4. AI 的最短工作流程
-
-下面假设会话绑定 `agent-a`。示例中的文件内容仅用于展示参数，实际修改前先读取目标文件。
-
-### 第一步：取得工作目录
+目录查询示例：
 
 ```json
-{"name":"workspace_status","arguments":{}}
+{"rev":"main","path":"src","recursive":true,"limit":500}
 ```
 
-仅当错误码为 `workspace_not_found` 时才需要创建。创建前先检查实际连接的仓库：
+`rev` 必填且不能为空；明确的 `@` 表示已快照的工作区版本。读取磁盘上的当前内容应使用原生工具。分页时沿用返回的 `next_offset` 与 `next_column`。
+
+快速搜索示例（原生编辑后先调用 `workspace_status`）：
 
 ```json
-{"name":"workspace_list","arguments":{}}
+{"pattern":"TODO|FIXME","rev":"@","paths":["src","!src/generated"],"context":2,"limit":100}
 ```
 
-核对 `repository.path`、`git_dir`、`git_head` 和 `git_branch`；容器与子模块是不同仓库，不能未经核对把容器记录的旧 gitlink 当作基线。确认后创建本会话对应的 workspace：
+使用 `literal: true` 搜索原样文本，`ignore_case: true` 忽略大小写，`files_only: true` 只返回匹配文件和计数。路径支持目录、glob 和 `!` 排除规则。结果上限为 1,000 项，`truncated` 表示未全部返回；完整匹配计数仍保留，可缩小路径或条件继续查询。二进制、超过 32 MiB 的文件和忽略文件会报告跳过计数。
 
-```json
-{"name":"workspace_create","arguments":{"name":"agent-a"}}
-```
+搜索只覆盖所选 revision 的文件。`include_ignored: true` 只包含版本树中被其 .gitignore 规则忽略的文件，不会读取尚未记录的磁盘文件。搜索不会代替快照，也不会修改文件或版本历史。可用 `--tools tree --read-only` 暴露只读查询。
 
-未指定 `base` 时，优先从 `default` 的父提交开始；原地初始化时这通常是初始化时的 Git HEAD。需要固定基准时，传入已经确认的 bookmark、change id 或 commit id，不要猜测仓库一定有 `main`。
+ProjFS 投影目录原生重命名可能返回 `ERROR_NOT_SUPPORTED`，此时使用 `tree_move`。普通文件编辑、删除和可用的重命名操作不需要 MCP 替代品。
 
-保存结果中的 `path` 和 `working_copy`，核对 `parents` 与 `hint`。创建基线不同于 Git HEAD 时会提示，但不会自动切换历史基线。复用已存在的 workspace 时先检查其改动，不要重新创建、清空或撤销已有工作。
+旧 `read_file/list_dir/search/write_file/edit_file/move_path/delete_path` 和工具组 `files` 已删除，无兼容别名。当前工具组为 `workspace,tree,history,changes,collab,exec,publish`。
 
-### 第二步：读取和定位
+## 多工作区与版本交付
 
-```json
-{"name":"list_dir","arguments":{"limit":100}}
-```
+每个工作区有自己的 `@`。读取其他工作区的版本可显式用 `other@`；修改其他工作区需要其绑定会话或集成者会话。准备集成时先核对各工作区 status 和 parents，再用 `integrate` 等工具组合，处理 conflicts 并运行检查。
 
-```json
-{"name":"read_file","arguments":{"path":"README.md","limit":200}}
-```
+整理完成的 change 后可 `new_change` 继续下一项工作。发布完成的 change 时应确认目标：新建了空 `@` 后通常发布 `@-`。fetch、rebase、bookmark 与 push 的参数以 tools/list 为准。清理工作区之前检查是否有待保留的工作和未跟踪文件。
 
-```json
-{"name":"search","arguments":{"pattern":"TODO|FIXME","paths":["src"],"limit":50}}
-```
+## 错误与断线
 
-文件不存在时，依据目录列表调整路径。优先读取项目自己的开发说明和任务涉及的文件。
+同时检查 MCP `isError`、错误元数据和工具业务结果；例如外层执行成功并不意味着 `run.exit_code == 0`。
 
-### 第三步：修改
+stdio 的 stdout 只承载协议，stderr 承载日志。daemon 断线后代理会重建连接和初始化。已知只读请求可以重试；已发送但响应丢失的写请求不会自动重放，会返回结果未知。先核对 workspace_status、diff 与 op_log，再决定后续动作。
 
-整份写入：
+工具组和 read-only 限制通过 MCP 元数据传递，initialize 必须确认。会话只能缩小 daemon 的权限。破坏性操作的确认、elicitation 与超时保留；这些不替代客户端对原生文件/终端工具的审批规则。
 
-```json
-{"name":"write_file","arguments":{"path":"docs/task-notes.md","content":"Task notes\n"}}
-```
+## 可复制的任务指令
 
-精确替换：
-
-```json
-{"name":"edit_file","arguments":{"path":"docs/task-notes.md","old":"Task notes\n","new":"Verified task notes\n"}}
-```
-
-`old` 必须精确匹配，默认只能出现一次；不要为了消除歧义直接打开 `replace_all`。也可以用外部编辑器修改返回的 `path` 内的文件。完成外部编辑后调用 `workspace_status`，让后续 MCP 读取看到最新内容。
-
-Windows ProjFS workspace 的目录移动使用 `move_path`。版本管理通过 MCP 工具完成；这些目录不是独立的 Git worktree，在其中调用普通 Git 可能向上发现原仓库，不能用它代替本 workspace 的版本操作。不要手动编辑 `.jj` 元数据。
-
-### 第四步：运行检查
-
-先确认 shell 的当前目录，例如 Windows：
-
-```json
-{"name":"run","arguments":{"command":"Get-Location","timeout_secs":30}}
-```
-
-Linux 对应命令为 `pwd`。随后把 `command` 替换为从项目说明中确认的构建、测试或 lint 命令；`cwd` 可指定 workspace 内的相对子目录，省略时就是根目录。
-
-`run` 默认超时 120 秒，允许 1–3600 秒。检查返回的 `exit_code`、`timed_out`、`cancelled`、`stderr`、`snapshot_error` 和 `untracked`。收到 MCP 成功响应不代表测试退出码为零，也不代表所有新文件都已进入版本历史。
-
-### 第五步：审阅和交付
-
-```json
-{"name":"diff","arguments":{"format":"summary"}}
-```
-
-```json
-{"name":"diff","arguments":{"format":"unified","paths":["docs/task-notes.md"]}}
-```
-
-确认任务完成后描述当前 change：
-
-```json
-{"name":"describe","arguments":{"message":"Document verified task notes"}}
-```
-
-如需保留已完成 change，并打开下一项工作的空 change：
-
-```json
-{"name":"new_change","arguments":{}}
-```
-
-调用前完成的成果在 `@`；调用后它成为 `@-`。交付时优先报告已完成成果的 change id，避免后续 `@` 移动后引用错位置。不要把 jj operation id 当成 change id。
-
-## 5. 从原目录的未提交修改开始
-
-默认创建 workspace 不包含 `default@` 自身的未提交修改。需要包含时：
-
-1. 由绑定 `default` 的准备会话，或 HTTP `/mcp` 集成者会话，先记录原目录当前状态。
-2. 再让各任务会话从 `default@` 创建自己的 workspace。
-
-准备会话调用：
-
-```json
-{"name":"workspace_status","arguments":{"name":"default"}}
-```
-
-绑定 `agent-a` 的会话调用：
-
-```json
-{"name":"workspace_create","arguments":{"name":"agent-a","base":"default@"}}
-```
-
-`agent-a` 的绑定会话不能自行调用 `workspace_status(name="default")`。需要多任务完全一致的初始内容时，协调者把准备阶段返回的 `working_copy.commit_id` 作为固定 `base` 分发，避免创建期间原目录又被修改。
-
-## 6. 多 workspace 汇总
-
-每个 agent 连接相同 `--repo`，使用不同 `--workspace`。任务结束后先停止继续编辑已交付的 change，再由绑定 `integration` 的第三个会话汇总。
-
-第三个会话先创建自己的 workspace：
-
-```json
-{"name":"workspace_create","arguments":{"name":"integration"}}
-```
-
-下面假设基础 bookmark `main` 已确认存在，并且两个任务都在完成后调用了 `new_change`：
-
-```json
-{
-  "name":"integrate",
-  "arguments":{
-    "changes":["agent-a@-","agent-b@-"],
-    "onto":"main",
-    "message":"Integrate agent A and agent B"
-  }
-}
-```
-
-实际集成优先使用各 agent 报告的已完成 change id。若 agent 没有调用 `new_change`，它的成果还在 `agent-a@`，不能直接套用 `@-`。`onto` 换成共同约定的基准。
-
-`integrate` 创建汇总 change，不直接改写各 agent 的源 change。检查返回的冲突，再运行项目测试。冲突处理先读取详情：
-
-```json
-{"name":"conflicts","arguments":{}}
-```
-
-```json
-{"name":"conflict_details","arguments":{"path":"src/Scene.cpp","full":true}}
-```
-
-自行合并后，按返回的 `token`、`hint` 和实际内容调用 `resolve_conflict`；片段 token 只能配对应片段的合并结果。仅在已经读齐整份文件并确认结果时，使用 `write_file` 写完整合并内容。重新检查冲突与测试结果。
-
-绑定 `integration` 的会话无需传 `workspace`；若通过 HTTP `/mcp` 操作，上述 `integrate`、`conflicts`、文件工具及 `run` 调用需补 `workspace: "integration"`。
-
-## 7. 发布与清理是可选步骤
-
-普通接入默认不允许破坏性工具。任务明确需要发布或删除 workspace 时，服务端和对应会话都必须允许破坏性调用（`--allow-destructive`），调用还必须带 `confirm: true`。已有 daemon 的策略不匹配时按错误提示协调配置，不能靠重试扩大权限。
-
-例：在集成会话中发布当前已验证的成果；以下只示范参数，不属于每次任务都应执行的步骤：
-
-```json
-{"name":"bookmark_set","arguments":{"name":"feature/combined-work","rev":"@"}}
-```
-
-```json
-{"name":"git_push","arguments":{"bookmark":"feature/combined-work","remote":"origin","confirm":true}}
-```
-
-如果已经调用 `new_change`，bookmark 应指向已完成的 change id 或 `@-`。`origin` 也必须是仓库实际存在且已配置认证的 remote。
-
-经确认不再需要 workspace 后，在对应绑定会话或集成者会话调用：
-
-```json
-{"name":"workspace_remove","arguments":{"name":"agent-a","confirm":true}}
-```
-
-此调用会忘记该 workspace 并删除其目录。原目录的 `default` 是仓库锚点，不能这样删除。不要用递归文件删除代替 workspace 管理工具。
-
-`--destructive-approval user` 在客户端支持 MCP elicitation 时还会询问用户。不支持该能力的客户端依照 `confirm` 规则执行，服务 instructions 会说明；需要彻底禁止这些操作时不启用 `--allow-destructive`。无人值守会话使用用户批准模式可能等待至超时。
-
-## 8. 程序化处理结果
-
-- 检查 JSON-RPC 是否返回 `error`；若正常收到工具结果，再检查 `result.isError`。
-- 业务数据优先读 `result.structuredContent`；`content` 提供文字摘要。错误码位于 `result._meta["agentfs/errorCode"]`。
-- 未提供的可选参数通常应省略；不要拼入 Schema 没有声明的字段。Schema 是当前会话的参数依据。
-- 返回结果可能省略 false、空列表或可选字段；按各工具的输出 Schema 和字段语义处理，不能把任何缺失字段都统一当作 false。
-- `truncated: true` 表示结果不完整，继续读取或缩小范围。`read_file` 用 `next_offset` 续读，返回 `next_column` 时同时传 `column`。
-- 文本 offset 是 1 起始的行号；二进制 offset 是 0 起始的字节数。二进制内容为 base64，不要直接拼入文本编辑工具。
-- 保留并处理 `hint`、`notice`、冲突及未记录文件信息。文件变更后出现的路径更新提示不能忽略。
-- 对已发送但响应丢失的修改调用，先检查状态、diff 或操作日志，再决定是否重试；重复 `new_change`、`edit_file` 或发布可能产生新的结果。
-
-常见错误的下一步：
-
-| 错误码 | 处理 |
-|---|---|
-| `workspace_not_found` | 核对 `workspace_list.repository` 和基线后创建绑定的 workspace |
-| `workspace_exists` | 检查并复用已有 workspace，或为新任务换名 |
-| `workspace_not_allowed` | 修正会话绑定或交由集成者操作 |
-| `base_required` / `invalid_revision` | 查询实际历史，传入有效且明确的基准 |
-| `tool_not_exposed` | 核对 `tools/list` 与会话配置 |
-| `old_text_not_found` / `old_text_ambiguous` | 重新读取文件，修正精确替换范围 |
-| `confirmation_required` / `destructive_disabled` | 核对任务授权与服务策略，不盲目追加确认或重试 |
-| `user_declined` / `approval_failed` | 处理拒绝或审批失败，不自动重复触发 |
-| `conflict_changed` | 重新读取冲突详情，再生成合并结果 |
-| `push_rejected` | 根据提示 fetch、检查远端变化并协调合并 |
-
-诊断服务：
-
-```powershell
-agentfsd status --repo D:/Project3D
-```
-
-日志位于 `.jj/agentfs/daemon/daemon.log`。一个仓库只运行一个 daemon；更改共同的仓库选项需要协调其他客户端。当前工作副本只接受完整 version 2 状态，不提供旧格式迁移；升级前结束旧服务。
-
-## 9. 可直接交给 AI 的工作指令
-
-将以下内容中的 workspace 名称和任务替换为实际值；前提是客户端已连接对应 MCP 服务。
-
-```text
-你通过 AgentFS MCP 完成任务。
-仓库：D:/Project3D
-分配的 workspace：agent-a
-任务：<填写任务目标和验收条件>
-
-先读取当前 MCP instructions 和工具 Schema，确认会话绑定。
-调用 workspace_status；仅在 workspace_not_found 时需要创建 agent-a。
-创建前调用 workspace_list，核对 repository 的路径、Git HEAD 和分支，再确定 base。
-创建后核对 parents 和 hint，确认基线符合任务；不要盲用容器记录的旧子模块提交。
-以返回的 path 作为实际工作目录，读取该 workspace 内的项目说明。
-保留已有改动，所有本任务文件编辑与测试均在此 workspace 完成。
-外部编辑完成后调用 workspace_status，再使用 diff 审阅。
-根据项目说明选择测试命令，通过 run 执行并检查退出码与记录结果。
-任务完成后用 describe 描述成果；若调用 new_change，记住成果已变成 @-。
-交付 workspace 名称、path、成果 change id、修改摘要、测试结果和未解决事项。
-仅在任务要求且有相应授权时进行发布、删除或改写他人的 change。
-```
-
-安装与升级见[安装说明](INSTALL.md)；接入选项可用 `agentfsd stdio --help`、`agentfsd serve --help` 和 `agentfsd client-config --help` 查询。完整工具列表、参数定义与返回结构由当前会话的 `tools/list` 提供；使用二进制接入无需访问私有源码。
+> 使用绑定到目标仓库的 AgentFS MCP 管理工作区和版本。先调用 workspace_status；仅在 workspace_not_found 时创建，并用 workspace_list 核对仓库路径、Git HEAD 和分支，创建后检查 parents。以返回的 path 为原生工具工作目录，保存任务开始时的固定 commit。编辑、移动、删除和检查使用原生工具；仓库范围搜索使用 search_revision_tree 并显式给 rev，原生修改后先用 workspace_status 更新快照。磁盘实时内容用原生工具查询；历史内容和 ProjFS/异常路径修复使用版本树工具。结束前记录磁盘修改，用 status 和固定基线 diff 审阅，检查截断、MCP 错误及命令退出码。不要操作其他会话的工作区，不要重复执行结果未知的写调用。
