@@ -1,58 +1,72 @@
-# 仓库、会话与工作区接入检查
+# 仓库、工作区和 MCP 路由
 
-本文对应 v0.2.0。Git 指针文件、仓库诊断和原位布局继续保留；文件修改使用客户端原生工具；搜索、读取和目录查询可走显式 revision 的快速 MCP 接口，MCP 接口以当前版本的 instructions 和 tools/list 为准。
+本文对应 v0.3.1。默认 `agentfsd stdio` 不绑定仓库，AI 在工具调用时选择项目。旧版本用户先按[安装指南](INSTALL.md)升级并重新生成客户端配置。
 
-## 确认仓库、会话和基线
+## 路由模型
 
-| 对象 | 需要确认的内容 |
+```text
+一个 MCP 连接（agentfsd stdio）
+  ├─ repo A → daemon A → workspace_id A1 / A2
+  └─ repo B → daemon B → workspace_id B1
+```
+
+启动全局 MCP 不创建工作区、不推断当前目录。首次选择 repo 时才发现或启动它的 daemon。每个 workspace_id 固定指向一个仓库中的工作区；没有可被其他调用切换的全局“当前仓库”。
+
+| 对象 | 如何指定或核对 |
 | --- | --- |
-| 仓库 | `--repo` 是本次要修改的代码仓库根目录；容器及其子模块是不同仓库 |
-| 会话 | `initialize` 的 instructions 绑定本任务的 workspace；并行任务使用独立名称 |
-| 基线 | 工作区 `parents` 与任务要求的当前 Git HEAD、目标分支或历史版本对应 |
-
-配置中固定的 `--workspace` 不会因为新开聊天而自动变化。绑定会话也不能通过工具的 `workspace` 参数切换到其他工作区。明确目标仓库和任务名称后，用 `agentfsd client-config` 生成连接配置，并由客户端加载。
+| 仓库 | open/create/list 的 repo 参数，必须是绝对 Git/jj 工作目录 |
+| 工作区 | open 的 name；省略时同一连接内每个仓库使用一个稳定自动名称 |
+| 后续调用目标 | 返回的 workspace_id，其他工作区工具必须明确提供 |
+| 原生目录 | 返回的 path，客户端编辑器/终端必须使用这个路径 |
+| 基线 | repository.git_head/git_branch、parents、working_copy 和 hint |
 
 ## 推荐调用顺序
 
-1. 完成 MCP `initialize` 和 `notifications/initialized`，读取 instructions 及 `tools/list`，确认绑定。
-2. 调用 `workspace_status`。已有工作区先审阅路径、父提交和改动；仅 `workspace_not_found` 表示需要创建。
-3. 创建前调用 `workspace_list`，核对顶层 `repository.path`、`repository.git_dir`、`repository.git_head` 和 `repository.git_branch`。仓库不匹配时先连接正确仓库。
-4. 根据任务确定基线；省略 `base` 使用规定的默认值，固定基线时传已核对的完整 commit id。`git_head` 是读取时的 Git 状态，可能尚未导入 jj，不代表可以跳过 revision 查询或导入检查。
-5. `workspace_create` 后核对 `parents`、`path` 与 `hint`。父提交与 Git HEAD 不同会返回提示，历史版本任务仍允许继续。相同也不意味着它是远端最新版本，目标分支及同步情况仍由任务决定。
-6. 以返回的 `path` 为实际目录；设置原生工具的实际工作目录，读取 `AGENTS.md` 等说明，然后搜索、编辑和测试。
+1. 客户端只配置 `agentfsd stdio`，完成 MCP 初始化并读取 tools/list。
+2. 调用 `workspace_open({"repo":"D:/Project3D","name":"task-a"})`。
+3. 核对返回的仓库、路径、父提交、修改和提示，保存 repo/name/workspace_id 与任务起始 commit。
+4. 用原生工具在 path 工作；后续调用如 `workspace_status({"workspace_id":"…"})`。
+5. 可以继续打开其他 repo 或其他名称；返回的标识分别使用，互不改变。
 
-`repository` 同时提供结构化字段和文本内容，用于识别连接目标。该检查不会自动 fetch、切换分支、更新旧 workspace 或合并其他任务的改动。
+已有工作区原生修改会被快照并保留。提供 base 时，新建使用它；复用必须与已有父提交集合匹配，否则拒绝。省略 base 沿用 workspace_create 的默认基线规则，不自动获取远端最新版本。不同于 Git HEAD 时返回提示，不会自动 rebase。
 
-## 子模块与 Git worktree
+## 重试、并发与只读
 
-AgentFS 接受普通 Git 工作目录、子模块及 linked worktree 的 `.git` 指针文件；`--init-from-git` 的来源也可使用明确给出的 Git 元数据目录或 bare repository。相对指针按 Git 规则解析；linked worktree 保留自己的 HEAD。解析只检查传入的位置，不向上查找另一个仓库。
+同一 repo/name 的并发打开共用一条路由，不重复创建。省略 name 也有稳定候选名称；若要同仓库并行任务，应传不同 name。不同仓库可以使用相同工作区名称，返回不同 workspace_id。
 
-例如外层 `D:/Project3D` 中的 `engine/` 是子模块，修改 engine 时使用：
+daemon 重启后路由恢复到同一仓库和工作区。完整客户端重启后旧标识失效，显式提供保存的 repo/name 重新打开；标识不是长期存储的仓库编号。
 
-```powershell
-agentfsd client-config --client generic --repo D:/Project3D/engine --workspace engine-task
+workspace_open 结果未知或取消后重试相同 repo/name。已发送的普通修改不会自动重放，应检查 status、diff 和 op_log。工作区创建成功而后续操作失败时，保留已有数据供重试。
+
+只读连接用 `workspace_list({"repo":"D:/Project3D"})` 获取已有工作区及标识。该调用不创建或快照工作区；打开尚未使用过的 Git 仓库仍可能按现有机制初始化 .jj。只读是 MCP 操作限制，不是文件系统沙箱。使用工具组时保留 workspace，例如 `--tools workspace,tree,history --read-only`。
+
+多个客户端显式恢复同一个 repo/name 会共享该工作区，并非独占租约；并行编辑应使用不同名称。
+
+## 原位布局与子模块
+
+```text
+D:/Project3D/
+├── .git/                     # 也可为 Git 指针文件
+├── .jj/agentfs/workspaces/
+│   ├── task-a/
+│   └── task-b/
+└── 原有项目文件               # default 工作区
 ```
 
-首次启动后 `.jj` 位于子模块工作目录中，与 `.git` 指针文件同级；无需手工寻找 `.git/modules/...` 或另建管理目录。原有 Git HEAD、暂存区和文件内容保持，未提交内容按 jj 忽略规则记录在 `default` 中。
+Git 原目录成为 default，.jj 与 .git 同级，无需另建管理目录。子模块和 Git linked worktree 的 .git 指针文件按 Git 规则解析。
 
-外层提交记录的 gitlink 可能落后于子模块当前检出的版本，不能直接当作“当前实现”的基线。更新子模块后，应提交外层的 gitlink；已经建立的旧工作区仍需单独核对。
+修改子模块 D:/Project3D/engine 时直接调用：
 
-从外层工作区读取或遍历子模块时，工具会提示连接子模块仓库。读取子模块无需删除或移动它。
+```json
+{"repo":"D:/Project3D/engine","name":"engine-task"}
+```
 
-## 错误处理与客户端实现
+不修改 MCP 配置，不移动或删除子模块。外层 gitlink 可能落后于子模块当前 HEAD，不能直接作为“当前实现”基线。
 
-| 情况 | 下一步 |
-| --- | --- |
-| `workspace_not_found` | 确认仓库和基线后创建本会话绑定的工作区 |
-| `workspace_not_allowed` | 修正客户端绑定，不循环重试切换工作区 |
-| `path_not_found` | 用 `list_revision_tree` 明确指定 rev 查询；磁盘存在不代表所选提交中存在 |
-| 子模块的 `not_a_directory` / `not_a_file` | 连接子模块自己的仓库 |
-| Git 指针损坏或目标不存在 | 修复原有 Git 元数据；失败初始化不会留下 `.jj` |
-| 创建结果提示 HEAD 差异 | 核对历史基线是否有意选择，避免在旧实现上继续开发 |
+## 错误与专用连接
 
-优先复用客户端已配置的 MCP 连接。程序化接入使用正式 MCP SDK，保持会话至任务结束；设置请求超时，持续消费 stderr，并处理服务端请求、进度、取消及连接关闭。stdio stdout 只承载协议。
+repo 缺失、相对路径、普通非仓库目录、未知 workspace_id 或旧作用域参数会明确拒绝。参数错误不会自动改连另一个仓库。仓库自身的配置、锁和权限分别生效；某个仓库失败不会改变其他标识。
 
-分别检查 JSON-RPC `error`、MCP `result.isError` 和业务结果。`run` 还需检查 `exit_code`、`timed_out`、`cancelled` 及 snapshot 结果。外层 Python/PowerShell 退出码为 0，不代表内部工具或构建命令成功。
+全局工具使用 repo / workspace_id；不使用 expected_repo，也不靠省略作用域切换目标。专门限制到单仓库时，CLI 仍支持 --repo 加 --workspace、--task-session 或 --integrator；这些专用连接有不同的作用域 Schema，以其 tools/list 为准。普通多项目使用默认全局配置。
 
-
-MCP 统一通过 stdio 接入；编排者可使用 `--integrator` 并显式指定工作区。原生文件工具和终端不会随 MCP 绑定自动切换目录。任务开始保存固定 commit，结束时比较完整任务差异；检查 status 的截断标记。
+stdio stdout 只承载协议，stderr 承载日志。程序化集成使用正式 SDK，保持连接，处理取消、审批、超时和业务错误；日常 AI 调用复用已经配置的 MCP。
