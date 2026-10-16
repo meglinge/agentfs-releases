@@ -1,6 +1,6 @@
 # AgentFS：AI 快速集成指南
 
-本文对应 **v0.3.3**，共 40 个 MCP 工具。默认入口支持同一连接访问多个本地仓库；使用[安装指南](INSTALL.md)中的一条命令安装或升级。
+本文对应 **v0.4.0**，共 40 个 MCP 工具。默认入口支持同一连接访问多个本地仓库；使用[安装指南](INSTALL.md)中的一条命令安装或升级。
 
 ## 一次配置，调用时选仓库
 
@@ -64,14 +64,28 @@ Windows ProjFS 投影目录无法原生重命名时使用 tree_move；异常或�
 
 status 的 changes 相对当前 change 的父版本，最多 200 项；检查 truncated 和总数。整项任务应以开始时保存的固定 commit 与结束版本做 diff。跨多个 change 的任务不能只看当前 @。
 
+### 子模块状态（v0.4.0）
+
+从 v0.4.0 开始， `workspace_open/status` 增加 `submodules`：每项包含 `path`、完整 `recorded_commit`（当前快照 `@` 的 gitlink）、完整 `current_commit`（该工作区子模块自己的 HEAD）和 `state`。状态为 `unchanged`、`modified`、`uninitialized`、`unavailable` 或 `conflicted`；无法确定的提交字段省略，错误或冲突另有 `detail`。读取失败不能当成没有修改。
+
+存在跟踪子模块时返回 `submodule_snapshot_supported: false` 和说明。`changes` 与 `diff` 仍只表示已快照内容；即使 `changes: []`，也必须检查 `submodules`。`unchanged` 只表示 HEAD 一致，不代表内部文件干净：检查不会扫描子模块文件，也不递归检查它的子模块。独立工作区只读取自己目录里的子模块，未初始化时不会借用原目录的 HEAD。
+
+子模块列表最多 200 项，超过时返回 `submodules_total` 和 `truncated`；剩余磁盘状态用返回的工作区 path 下的原生 Git 检查，不能通过快照 diff 补齐。编辑子模块要独立打开其仓库；指针用原生 Git 在外层仓库记录并提交后，重新打开外层工作区自动导入。已经提交的 gitlink 支持历史 diff。见[详细说明](WORKSPACE_SETUP.md#子模块状态报告v040)。
+
 同一仓库的工作区可通过 integrate/rebase/冲突工具协作。不同仓库有各自的 jj 图、锁和配置；不要把另一仓库的 change 或 workspace_id 当成本仓库 revision。
 
-每个仓库按需启动或复用 daemon。只读、工具组、破坏性确认和用户 elicitation 都继续生效；仓库配置可以进一步收紧权限。进度、取消和审批会沿路由转发，审批注明目标仓库。MCP 只用 stdio 和本机 IPC，不提供 HTTP。
+每个仓库按需启动或复用 daemon，只读和工具组选择继续生效；进度和取消沿路由转发。v0.4.0 已移除 AgentFS 自身的破坏性开关、confirm 参数和审批请求。推送、删除工作区、恢复操作及显式版本改写不需要额外确认参数；仓库/工作区边界、不可变历史、冲突和远端状态校验仍然执行。MCP 只用 stdio 和本机 IPC，不提供 HTTP。
 
 同时检查 JSON-RPC error、MCP isError 和业务结果（如 run.exit_code）。全局 workspace_open 的 timings_ms.total 包含整个网关调用，connect 包含首次启动/连接目标 daemon，backend 是后端内总耗时；repository/open/snapshot 为后端阶段。不包括模型思考和启动 MCP 客户端的时间。
 
 确需限定到单仓库时可显式使用 --repo 加 --workspace/--task-session/--integrator；这是专用连接，其参数以自身 tools/list 为准，不要与全局入口混用。
 
+## 审批控制迁移（v0.4.0）
+
+新接口不接受 confirm 参数；CLI/配置不再接受 allow_destructive、destructive_approval、approval_timeout 或对应命令行选项。删除这些参数后，用旧二进制停止已有 daemon，再替换程序并重新连接 MCP，以刷新工具 Schema。IPC 协议版本为 5，旧客户端或 daemon 不混用；版本有效性和 workspace_id 恢复规则不变。
+
+普通调用示例：git_push({workspace_id, bookmark, remote})、workspace_remove({workspace_id})、op_restore({workspace_id, op})。读取 tools/list 的实际 Schema，不要向新版传旧版 confirm，升级后确认 stdio 和 daemon 都运行 v0.4.0。
+
 ## 可复制的任务指令
 
-> 使用全局 AgentFS MCP，以 workspace_open 的 repo 参数选择实际项目；恢复任务时指定保存的 name。核对返回的 repository、path、parents 和 hint，保存 workspace_id、工作区名称和开始时固定 commit。后续工作区调用都传 workspace_id；并行任务使用不同名称，并保持标识与实际目录对应。原生编辑、移动、删除和检查在 path 中进行；快照后再查询 rev @。完成后用 status 和固定基线 diff 审阅，检查截断、工具错误及业务退出码。不要修改 MCP 配置切换项目，也不要另建临时 SDK 绕过作用域。
+> 使用全局 AgentFS MCP，以 workspace_open 的 repo 参数选择实际项目；恢复任务时指定保存的 name。核对返回的 repository、path、parents 和 hint，保存 workspace_id、工作区名称和开始时固定 commit。后续工作区调用都传 workspace_id；并行任务使用不同名称，并保持标识与实际目录对应。原生编辑、移动、删除和检查在 path 中进行；快照后再查询 rev @。完成后用 status 和固定基线 diff 审阅，检查截断、工具错误及业务退出码。有子模块时检查 submodules 和 hint；旧版本没有该字段时用原生 Git 补查，不能把空 changes 当成磁盘无修改。不要修改 MCP 配置切换项目，也不要另建临时 SDK 绕过作用域。

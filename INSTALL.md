@@ -1,10 +1,10 @@
 # 安装 AgentFS
 
-稳定版 [v0.3.3](https://github.com/meglinge/agentfs-releases/releases/tag/v0.3.3) 提供不绑定仓库的 MCP 入口，同一连接可以管理多个仓库和工作区，并自动同步本地 Git 提交。原生工具负责文件编辑，MCP 保留工作区、版本协作和快速查询。二进制和安装脚本公开分发在 [meglinge/agentfs-releases](https://github.com/meglinge/agentfs-releases/releases)，无需 GitHub 登录、Rust 或单独安装 jj。下面的命令可直接安装最新稳定版；重复执行即升级。
+稳定版 [v0.4.0](https://github.com/meglinge/agentfs-releases/releases/tag/v0.4.0) 提供不绑定仓库的 MCP 入口，同一连接可以管理多个仓库和工作区，并自动同步本地 Git 提交。原生工具负责文件编辑，MCP 保留工作区、版本协作和快速查询。二进制和安装脚本公开分发在 [meglinge/agentfs-releases](https://github.com/meglinge/agentfs-releases/releases)，无需 GitHub 登录、Rust 或单独安装 jj。下面的命令可直接安装最新稳定版；重复执行即升级。
 
 让 AI 配置 MCP、创建 workspace 并开始任务，请提供[公开 AI 集成指南](https://github.com/meglinge/agentfs-releases/blob/main/AI_INTEGRATION.md)。
 
-默认入口为 `agentfsd stdio`；配置使用 `args = ["stdio"]`，工具用 repo/workspace_id 选择目标。v0.3.3 沿用 v0.3.1 的 IPC protocol 4 和全局配置，不连接旧 protocol 3 daemon。升级时仍须先停止旧 daemon，换新程序后重新连接 MCP，才能加载本地 Git 自动同步实现。
+默认入口为 `agentfsd stdio`；配置使用 `args = ["stdio"]`，工具用 repo/workspace_id 选择目标。v0.4.0 使用 IPC protocol 5，移除了 AgentFS 内置审批参数，并增加子模块状态报告。升级须先用旧程序停止 daemon、删除旧审批配置，再安装新版并重新连接 MCP；旧 stdio 与新 daemon 不能混用。
 
 ## Windows x64：PowerShell
 
@@ -19,7 +19,7 @@ irm https://github.com/meglinge/agentfs-releases/releases/latest/download/instal
 指定版本或安装目录：
 
 ```powershell
-$env:AGENTFS_VERSION = 'v0.3.3'
+$env:AGENTFS_VERSION = 'v0.4.0'
 $env:AGENTFS_INSTALL_DIR = 'D:\Tools\AgentFS\bin'
 irm https://github.com/meglinge/agentfs-releases/releases/latest/download/install.ps1 | iex
 ```
@@ -39,7 +39,7 @@ source <(curl -fsSL https://github.com/meglinge/agentfs-releases/releases/latest
 指定版本或目录：
 
 ```bash
-export AGENTFS_VERSION=v0.3.3
+export AGENTFS_VERSION=v0.4.0
 export AGENTFS_INSTALL_DIR="$HOME/tools/agentfs/bin"
 source <(curl -fsSL https://github.com/meglinge/agentfs-releases/releases/latest/download/install.sh)
 ```
@@ -70,16 +70,25 @@ source <(curl -fsSL https://github.com/meglinge/agentfs-releases/releases/latest
 agentfsd --version
 ```
 
-指定安装 `v0.3.3` 时应输出 `agentfsd 0.3.3`；未指定版本时，以最新稳定 Release 的 `VERSION` 为准。无需关闭当前终端，也无需额外执行 PATH 设置命令。升级前先停止使用旧程序的 daemon，升级后重新连接 MCP 客户端。
+指定安装 `v0.4.0` 时应输出 `agentfsd 0.4.0`；未指定版本时，以最新稳定 Release 的 `VERSION` 为准。无需关闭当前终端，也无需额外执行 PATH 设置命令。升级前先停止使用旧程序的 daemon，升级后重新连接 MCP 客户端。
 
 从 v0.3.1 升级后，调用 `workspace_open` 打开原目录的 `name: "default"`，或对已有 handle 调用 `workspace_status`，即可把新出现的本地 Git HEAD 同步为 parent；磁盘修改与暂存区保留。独立任务工作区不会自动移动基线，无需重新初始化 `.jj`。
 
 维护者推送匹配 crate 版本的新 tag 后，流程执行 Windows/Linux 完整 CI 和五个平台的原生构建；全部成功并验证附件齐全后自动公开发布。
 
+## 从 v0.3.x 升级到 v0.4.0
+
+1. 保存 repo/name，用旧程序对各仓库执行 `agentfsd stop --repo <仓库目录>`。
+2. 删除 CLI 中的 `--allow-destructive`、`--destructive-approval`、`--approval-timeout` 及配置中的 `allow_destructive`、`destructive_approval`、`approval_timeout`。新版会拒绝这些已删除选项。
+3. 执行安装命令，重新连接 MCP，使 stdio 和 daemon 都加载新版并重新读取 Schema；工具调用删除 `confirm` 参数。
+4. 使用保存的 repo/name 重新打开工作区，取得当前连接的 workspace_id。保留现有 `.jj`、工作区和文件。
+
+v0.4.0 的显式工具调用直接执行；只读与工具组选择、仓库/工作区绑定及版本正确性校验继续生效。子模块 HEAD 变化通过 `submodules` 单独报告，仍不纳入外层快照；不能只凭空 `changes` 判断整个磁盘状态。
+
 ## 从 v0.2.x 或 v0.1.x 升级
 
 1. 断开 MCP 客户端，使用仍然安装着的旧程序对各仓库执行 `agentfsd stop --repo <仓库目录>`；`--in-process` 会话通过退出客户端关闭。
-2. v0.1.x 用户删除配置中的 HTTP 参数：`port`、`no_auth`、`allow_origin`、`session_idle_timeout`，以及客户端的 URL、bearer token 和 HTTP transport 配置。新版只接受 stdio；旧 daemon 的协议不能与新版混用。
+2. 同时执行上节的审批选项迁移。v0.1.x 用户删除配置中的 HTTP 参数：`port`、`no_auth`、`allow_origin`、`session_idle_timeout`，以及客户端的 URL、bearer token 和 HTTP transport 配置。新版只接受 stdio；旧 daemon 的协议不能与新版混用。
 3. 执行上面的一条安装命令，然后运行 `agentfsd client-config --client codex`，把生成的 stdio 配置合并到客户端；其他客户端替换 `--client`。默认参数只保留 `stdio`，移除固定的 `--repo`、`--workspace` 和 `--task-session`。保留其他 MCP 服务和必要的权限设置。
 4. 重新连接，调用 `workspace_open({"repo":"实际仓库绝对路径","name":"原工作区名称"})`，核对返回的仓库、路径和基线。后续调用传入返回的 `workspace_id`。沿用原有 `.jj` 和工作区，无需重新初始化或删除项目数据。
 
