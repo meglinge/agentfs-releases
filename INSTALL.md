@@ -1,10 +1,10 @@
 # 安装 AgentFS
 
-稳定版 [v0.3.1](https://github.com/meglinge/agentfs-releases/releases/tag/v0.3.1) 提供不绑定仓库的 MCP 入口，同一连接可以管理多个仓库和工作区。原生工具负责文件编辑，MCP 保留工作区、版本协作和快速查询。二进制和安装脚本公开分发在 [meglinge/agentfs-releases](https://github.com/meglinge/agentfs-releases/releases)，无需 GitHub 登录、Rust 或单独安装 jj。下面的命令可直接安装最新稳定版；重复执行即升级。
+稳定版 [v0.3.3](https://github.com/meglinge/agentfs-releases/releases/tag/v0.3.3) 提供不绑定仓库的 MCP 入口，同一连接可以管理多个仓库和工作区，并自动同步本地 Git 提交。原生工具负责文件编辑，MCP 保留工作区、版本协作和快速查询。二进制和安装脚本公开分发在 [meglinge/agentfs-releases](https://github.com/meglinge/agentfs-releases/releases)，无需 GitHub 登录、Rust 或单独安装 jj。下面的命令可直接安装最新稳定版；重复执行即升级。
 
 让 AI 配置 MCP、创建 workspace 并开始任务，请提供[公开 AI 集成指南](https://github.com/meglinge/agentfs-releases/blob/main/AI_INTEGRATION.md)。
 
-默认入口为 `agentfsd stdio`；配置使用 `args = ["stdio"]`，工具用 repo/workspace_id 选择目标。v0.3.1 内部 IPC protocol 4 不连接旧 protocol 3 daemon；升级前用旧程序停止 daemon，换新程序并更新配置后重新连接 MCP。
+默认入口为 `agentfsd stdio`；配置使用 `args = ["stdio"]`，工具用 repo/workspace_id 选择目标。v0.3.3 沿用 v0.3.1 的 IPC protocol 4 和全局配置，不连接旧 protocol 3 daemon。升级时仍须先停止旧 daemon，换新程序后重新连接 MCP，才能加载本地 Git 自动同步实现。
 
 ## Windows x64：PowerShell
 
@@ -19,7 +19,7 @@ irm https://github.com/meglinge/agentfs-releases/releases/latest/download/instal
 指定版本或安装目录：
 
 ```powershell
-$env:AGENTFS_VERSION = 'v0.3.1'
+$env:AGENTFS_VERSION = 'v0.3.3'
 $env:AGENTFS_INSTALL_DIR = 'D:\Tools\AgentFS\bin'
 irm https://github.com/meglinge/agentfs-releases/releases/latest/download/install.ps1 | iex
 ```
@@ -39,7 +39,7 @@ source <(curl -fsSL https://github.com/meglinge/agentfs-releases/releases/latest
 指定版本或目录：
 
 ```bash
-export AGENTFS_VERSION=v0.3.1
+export AGENTFS_VERSION=v0.3.3
 export AGENTFS_INSTALL_DIR="$HOME/tools/agentfs/bin"
 source <(curl -fsSL https://github.com/meglinge/agentfs-releases/releases/latest/download/install.sh)
 ```
@@ -70,7 +70,9 @@ source <(curl -fsSL https://github.com/meglinge/agentfs-releases/releases/latest
 agentfsd --version
 ```
 
-指定安装 `v0.3.1` 时应输出 `agentfsd 0.3.1`；未指定版本时，以最新稳定 Release 的 `VERSION` 为准。无需关闭当前终端，也无需额外执行 PATH 设置命令。升级前先停止使用旧程序的 daemon，升级后重新连接 MCP 客户端。
+指定安装 `v0.3.3` 时应输出 `agentfsd 0.3.3`；未指定版本时，以最新稳定 Release 的 `VERSION` 为准。无需关闭当前终端，也无需额外执行 PATH 设置命令。升级前先停止使用旧程序的 daemon，升级后重新连接 MCP 客户端。
+
+从 v0.3.1 升级后，调用 `workspace_open` 打开原目录的 `name: "default"`，或对已有 handle 调用 `workspace_status`，即可把新出现的本地 Git HEAD 同步为 parent；磁盘修改与暂存区保留。独立任务工作区不会自动移动基线，无需重新初始化 `.jj`。
 
 维护者推送匹配 crate 版本的新 tag 后，流程执行 Windows/Linux 完整 CI 和五个平台的原生构建；全部成功并验证附件齐全后自动公开发布。
 

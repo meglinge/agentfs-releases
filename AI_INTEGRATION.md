@@ -1,6 +1,6 @@
 # AgentFS：AI 快速集成指南
 
-本文对应 **v0.3.1**，共 40 个 MCP 工具。默认入口支持同一连接访问多个本地仓库；使用[安装指南](INSTALL.md)中的一条命令安装或升级。
+本文对应 **v0.3.3**，共 40 个 MCP 工具。默认入口支持同一连接访问多个本地仓库；使用[安装指南](INSTALL.md)中的一条命令安装或升级。
 
 ## 一次配置，调用时选仓库
 
@@ -31,7 +31,8 @@
 - `workspace_open/create/list` 使用绝对路径 `repo`；其他工具使用 `workspace_id`。
 - repo 必须是现有 Git/jj 工作目录。子模块用自己的目录；不用外层容器的 gitlink 代替实现仓库。
 - open 的 name 可省略：同一连接内，每个仓库使用一个稳定自动名称，便于重试；需要更多工作区时明确传不同名称。
-- open 复用已有名称并保留修改。可选 base 指定新建基线；复用时必须与现有父提交集合一致。省略 base 沿用原有默认规则，不自动 fetch 或 rebase。
+- open 复用已有名称并保留修改。可选 base 指定新建基线；复用时必须与现有父提交集合一致。不自动 fetch；独立任务工作区保留既有基线。
+- 从 v0.3.3 开始，本地 Git 引用自动导入；原目录的 default 工作区在本地 HEAD 变化后自动同步 parent，并快照保留磁盘修改和 Git 暂存区。新建默认基线也会先刷新原目录。无需调用 git_fetch、寻找 jj 可执行文件或创建远端来导入本地提交。已有独立工作区 parent 与 HEAD 不同可以是正常隔离，不能自动 rebase；详见 [本地 Git 同步](WORKSPACE_SETUP.md#本地-git-同步)。
 - workspace_id 属于当前 MCP 连接。daemon 重启后继续有效；整个客户端重启后，使用保存的 repo/name 重新打开获取标识。
 - open 响应丢失或取消后重试相同 repo/name；其他写操作先用 status、diff、op_log 确认实际结果。
 - `workspace_list({"repo":"D:/Project3D"})` 为每个已有工作区返回可用标识，不创建或快照工作区。只读连接通过它开始工作；自定义工具组需包含 workspace。
